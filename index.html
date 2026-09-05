@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>מניות לפני פריצה</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#0f1115;--card:#171a22;--card2:#1c2029;--line:#262b37;
+  --txt:#e7e9ee;--dim:#8b93a5;--acc:#3ddc97;--red:#ff6b6b;
+  --warn:#ffb454;--blue:#5aa9ff;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--txt);
+  font-family:'Heebo','Assistant','Noto Sans Hebrew',system-ui,Arial,sans-serif;
+  font-size:15px;line-height:1.6;word-spacing:.04em;
+  padding:calc(env(safe-area-inset-top) + 12px) 12px
+          calc(env(safe-area-inset-bottom) + 70px) 12px;
+  max-width:680px;margin-inline:auto;
+}
+header{display:flex;align-items:flex-start;justify-content:space-between;
+  gap:10px;margin-bottom:12px}
+h1{font-size:19px;margin:0;font-weight:700}
+.meta{color:var(--dim);font-size:12.5px;margin-top:2px}
+button{font-family:inherit;font-size:14px;border-radius:9px;padding:9px 13px;
+  cursor:pointer;color:var(--txt);background:var(--card2);
+  border:1px solid var(--line)}
+button:active{transform:scale(.97)}
+.btn-acc{background:var(--acc);color:#08130d;border-color:transparent;
+  font-weight:700}
+.row{display:flex;gap:8px;align-items:center}
+
+/* ---------- כרטיס מניה ---------- */
+.pick{background:var(--card);border:1px solid var(--line);border-radius:13px;
+  padding:12px 13px;margin-bottom:9px;overflow:hidden}
+.pick.long{border-inline-start:3px solid var(--acc)}
+.pick.short{border-inline-start:3px solid var(--red)}
+.pick.broke{border-inline-start-color:var(--warn);
+  box-shadow:0 0 0 1px rgba(255,180,84,.3)}
+.pick-head{display:flex;align-items:center;gap:9px;cursor:pointer}
+.rank{width:20px;color:var(--dim);font-size:13px;
+  font-variant-numeric:tabular-nums}
+.tk{direction:ltr;font-weight:800;font-size:18px;letter-spacing:.6px}
+.badge{font-size:11.5px;padding:2px 7px;border-radius:5px;font-weight:600}
+.b-long{background:rgba(61,220,151,.14);color:var(--acc)}
+.b-short{background:rgba(255,107,107,.14);color:var(--red)}
+.spacer{flex:1}
+.live{direction:ltr;text-align:end;font-variant-numeric:tabular-nums}
+.live .px{font-size:16px;font-weight:700;display:block;line-height:1.25}
+.live .ch{font-size:11.5px;display:block}
+.up{color:var(--acc)}.down{color:var(--red)}
+.chev{color:var(--dim);font-size:13px;transition:transform .18s}
+.pick.open .chev{transform:rotate(180deg)}
+
+/* ---------- מד מרחק מהטריגר ---------- */
+.gauge{margin-top:10px}
+.gauge-top{display:flex;justify-content:space-between;font-size:11.5px;
+  color:var(--dim);margin-bottom:4px}
+.gauge-top b{color:var(--txt);direction:ltr}
+.track{height:7px;background:var(--card2);border-radius:99px;overflow:hidden}
+.fill{height:100%;border-radius:99px;background:var(--blue);width:0;
+  transition:width .4s ease}
+.fill.near{background:var(--warn)}
+.fill.hit{background:var(--acc)}
+
+.quick{display:flex;gap:8px;margin-top:10px}
+.q{background:var(--card2);border-radius:8px;padding:6px 9px;flex:1}
+.q .lbl{color:var(--dim);font-size:11px;display:block}
+.q .val{font-size:15px;font-weight:700;direction:ltr;display:block;
+  font-variant-numeric:tabular-nums}
+.v-in{color:var(--acc)}.v-out{color:var(--red)}
+
+.detail{display:none;margin-top:11px}
+.pick.open .detail{display:block}
+.dl{display:flex;justify-content:space-between;padding:6px 0;
+  border-bottom:1px solid var(--line);font-size:13.5px}
+.dl:last-of-type{border-bottom:none}
+.dl b{direction:ltr;font-variant-numeric:tabular-nums}
+.tags{margin-top:8px;display:flex;gap:5px;flex-wrap:wrap}
+.tag{background:var(--card2);color:var(--dim);border-radius:5px;
+  padding:2px 7px;font-size:11px;direction:ltr}
+.mini{margin-top:10px;border-radius:9px;overflow:hidden;min-height:60px;
+  background:var(--card2)}
+.acts{display:flex;gap:8px;margin-top:10px}
+.acts button{flex:1}
+
+/* ---------- בלוקים ומודאל ---------- */
+.block{background:var(--card);border:1px solid var(--line);border-radius:13px;
+  padding:13px 14px;margin-bottom:11px}
+.block h2{font-size:14.5px;margin:0 0 8px;color:var(--acc)}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.stat .lbl{color:var(--dim);font-size:11.5px}
+.stat .val{font-size:19px;font-weight:800;direction:ltr;
+  font-variant-numeric:tabular-nums}
+.note{color:var(--dim);font-size:11.5px;margin-top:8px;line-height:1.55}
+.warn-b{border-inline-start:3px solid var(--warn)}
+.empty{text-align:center;padding:34px 16px;color:var(--dim)}
+.empty .big{font-size:34px;margin-bottom:8px}
+input{font-family:inherit;font-size:15px;background:var(--card2);color:var(--txt);
+  border:1px solid var(--line);border-radius:9px;padding:10px 12px;width:100%;
+  direction:ltr;text-align:left}
+label{display:block;font-size:13px;color:var(--dim);margin:10px 0 5px}
+.toast{position:fixed;inset-inline:0;bottom:calc(env(safe-area-inset-bottom) + 16px);
+  margin-inline:auto;width:fit-content;max-width:90%;background:#232935;
+  border:1px solid var(--line);border-radius:10px;padding:10px 16px;
+  font-size:13.5px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99}
+.toast.show{opacity:1}
+#modal{position:fixed;inset:0;background:#0b0d11;z-index:50;display:none;
+  flex-direction:column}
+#modal.on{display:flex}
+#modal .bar{display:flex;align-items:center;gap:10px;padding:10px 12px;
+  border-bottom:1px solid var(--line)}
+#modal iframe{flex:1;border:0;width:100%}
+footer{color:#6a7180;font-size:11px;text-align:center;margin-top:18px;
+  line-height:1.6}
+.hidden{display:none}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>מניות לפני פריצה</h1>
+    <div class="meta" id="meta">טוען…</div>
+  </div>
+  <div class="row">
+    <button id="btnRefresh" aria-label="רענון">↻</button>
+    <button id="btnSettings" aria-label="הגדרות">⚙</button>
+  </div>
+</header>
+
+<div class="block hidden" id="settings">
+  <h2>הגדרות</h2>
+  <label for="src">מקור הרשימה — כתובת JSON או נושא ntfy</label>
+  <input id="src" placeholder="https://user.github.io/repo/latest.json"
+         autocapitalize="off" autocomplete="off" spellcheck="false">
+  <label for="fh">מפתח Finnhub — למחירים חיים (לא חובה)</label>
+  <input id="fh" placeholder="c9xxxxxxxxxxxxxxxxxx" autocapitalize="off"
+         autocomplete="off" spellcheck="false">
+  <label for="cap">הון לחישוב גודל פוזיציה ($)</label>
+  <input id="cap" type="number" inputmode="numeric" placeholder="25000">
+  <div class="row" style="margin-top:12px">
+    <button class="btn-acc" id="btnSave" style="flex:1">שמור</button>
+    <button id="btnClose" style="flex:1">סגור</button>
+  </div>
+  <div class="note">
+    בלי מפתח Finnhub האפליקציה עדיין עובדת — היא תציג את הרשימה
+    והגרפים, אך בלי מחיר חי ובלי מד המרחק מהטריגר.
+    המפתח נשמר במכשיר בלבד ולא נשלח לשום מקום מלבד Finnhub.
+  </div>
+</div>
+
+<div id="statsBox"></div>
+<div id="list"></div>
+
+<div class="block warn-b">
+  <h2>כללי הפעלה</h2>
+  <div style="font-size:13.5px;color:#c9cedb">
+    אין כניסה לפני פריצה בפועל של הטריגר · נדרש ווליום יחסי מעל 1.5 ·
+    עד 3 פוזיציות במקביל · עצירה אחרי הפסד יומי של 2% ·
+    אין כניסות חדשות אחרי שעה מהפתיחה.
+  </div>
+</div>
+
+<footer>
+  סינון טכני אוטומטי. אין כאן ייעוץ השקעות, המלצה או הבטחת תוצאה.<br>
+  המחירים באפליקציה עשויים להתעכב. אמת מול הברוקר לפני כל כניסה.
+</footer>
+
+<div id="modal">
+  <div class="bar">
+    <button id="modalClose">✕</button>
+    <b id="modalTitle" style="direction:ltr"></b>
+    <span class="spacer"></span>
+    <span class="meta" id="modalSub"></span>
+  </div>
+  <iframe id="modalFrame" title="chart"></iframe>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const K_SRC="brk.topic", K_CAP="brk.cap", K_DATA="brk.data", K_FH="brk.fh";
+const $ = id => document.getElementById(id);
+let PICKS = [], SCALE = 1, QUOTES = {}, timer = null;
+
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");
+  clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2400);}
+const f2 = n => (n==null||isNaN(n)) ? "—" : Number(n).toFixed(2);
+const pc = n => (n==null||isNaN(n)) ? "—" : (n>0?"+":"")+Number(n).toFixed(1)+"%";
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+function ago(iso){
+  const d=new Date(iso); if(isNaN(d)) return "";
+  const m=Math.round((Date.now()-d.getTime())/60000);
+  if(m<1) return "עכשיו";
+  if(m<60) return "לפני "+m+" דק'";
+  const h=Math.round(m/60);
+  return h<24 ? "לפני "+h+" שעות" : "לפני "+Math.round(h/24)+" ימים";
+}
+
+/* ------------------ שליפת הרשימה ------------------ */
+async function fetchList(){
+  const src=(localStorage.getItem(K_SRC)||"").trim();
+  if(!src){ openSettings(); throw new Error("no-src"); }
+
+  if(/^https?:\/\//i.test(src)){
+    const r=await fetch(src+(src.includes("?")?"&":"?")+"v="+Date.now(),
+                        {cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const e={payload:await r.json(), fetched:new Date().toISOString()};
+    localStorage.setItem(K_DATA,JSON.stringify(e));
+    return e;
+  }
+
+  const r=await fetch("https://ntfy.sh/"+encodeURIComponent(src)+
+                      "/json?poll=1&since=12h",{cache:"no-store"});
+  if(!r.ok) throw new Error("ntfy "+r.status);
+  let last=null;
+  for(const line of (await r.text()).split("\n")){
+    if(!line.trim()) continue;
+    let m; try{ m=JSON.parse(line); }catch{ continue; }
+    if(m.event!=="message"||!m.message) continue;
+    try{ last={payload:JSON.parse(m.message), at:m.time}; }catch{}
+  }
+  if(!last) throw new Error("empty");
+  last.fetched=new Date().toISOString();
+  localStorage.setItem(K_DATA,JSON.stringify(last));
+  return last;
+}
+
+function cached(){
+  try{ return JSON.parse(localStorage.getItem(K_DATA)); }catch{ return null; }
+}
+
+/* ------------------ מחירים חיים ------------------ */
+async function fetchQuotes(){
+  const key=(localStorage.getItem(K_FH)||"").trim();
+  if(!key || !PICKS.length) return false;
+  let ok=0;
+  for(const p of PICKS){
+    try{
+      const r=await fetch("https://finnhub.io/api/v1/quote?symbol="+
+        encodeURIComponent(p.k)+"&token="+encodeURIComponent(key));
+      if(!r.ok) continue;
+      const q=await r.json();
+      if(q && q.c){ QUOTES[p.k]={c:q.c, dp:q.dp}; ok++; }
+    }catch{}
+  }
+  if(ok) paintLive();
+  return ok>0;
+}
+
+/* מרחק מהטריגר ביחידות סיכון, בדיוק כמו במעקב שרץ במחשב */
+function gaugeFor(p, price){
+  const risk=Math.abs(p.e-p.st) || 1;
+  const sign=p.sd==="L"?1:-1;
+  const dist=sign*(p.e-price)/risk;          // שלילי = כבר פרץ
+  const pctFill=clamp((1-dist)*100, 0, 100);
+  return {dist, pctFill, broke:dist<=0};
+}
+
+function paintLive(){
+  PICKS.forEach((p,i)=>{
+    const q=QUOTES[p.k]; if(!q) return;
+    const card=document.querySelector('.pick[data-i="'+i+'"]');
+    if(!card) return;
+
+    const px=card.querySelector(".live .px");
+    const ch=card.querySelector(".live .ch");
+    px.textContent=f2(q.c);
+    ch.textContent=pc(q.dp);
+    ch.className="ch "+(q.dp>=0?"up":"down");
+
+    const g=gaugeFor(p,q.c);
+    const fill=card.querySelector(".fill");
+    const lbl=card.querySelector(".gauge-top b");
+    fill.style.width=g.pctFill+"%";
+    fill.className="fill"+(g.broke?" hit":(g.dist<=0.15?" near":""));
+    lbl.textContent = g.broke ? "פרץ" : g.dist.toFixed(2)+"R";
+    card.classList.toggle("broke", g.broke);
+  });
+}
+
+/* ------------------ גרפים ------------------ */
+function mountMini(el, sym){
+  if(el.dataset.done) return;
+  el.dataset.done="1";
+  const s=document.createElement("script");
+  s.src="https://s3.tradingview.com/external-embedding/"+
+        "embed-widget-mini-symbol-overview.js";
+  s.async=true;
+  s.innerHTML=JSON.stringify({symbol:sym, width:"100%", height:170,
+    locale:"en", dateRange:"1M", colorTheme:"dark", isTransparent:true,
+    autosize:false, chartOnly:false});
+  el.appendChild(s);
+}
+
+function openChart(sym){
+  $("modalTitle").textContent=sym;
+  $("modalSub").textContent="גרף 5 דקות";
+  $("modalFrame").src="https://s.tradingview.com/widgetembed/?symbol="+
+    encodeURIComponent(sym)+"&interval=5&theme=dark&style=1&hidesidetoolbar=1"+
+    "&withdateranges=1&saveimage=0&timezone=Asia%2FJerusalem";
+  $("modal").classList.add("on");
+}
+$("modalClose").addEventListener("click",()=>{
+  $("modal").classList.remove("on"); $("modalFrame").src="about:blank";
+});
+
+/* ------------------ רינדור ------------------ */
+function render(entry){
+  const p=entry.payload;
+  PICKS=p.p||[];
+  const capNew=Number(localStorage.getItem(K_CAP)), capOld=Number(p.c);
+  SCALE=(capNew&&capOld&&capNew!==capOld)?capNew/capOld:1;
+
+  $("meta").textContent="עודכן "+p.d+" "+p.t+" · "+ago(entry.fetched||"")+
+    (SCALE!==1?" · כמויות מותאמות להון שלך":"");
+
+  $("statsBox").innerHTML = p.s ? `
+    <div class="block"><h2>ביצועי המודל · ${p.s.dy} ימי מסחר</h2>
+      <div class="stat-grid">
+        <div class="stat"><span class="lbl">הופעל טריגר</span>
+          <span class="val">${Math.round(p.s.tr*100)}%</span></div>
+        <div class="stat"><span class="lbl">הגיעו ליעד 1</span>
+          <span class="val">${Math.round(p.s.h1*100)}%</span></div>
+        <div class="stat"><span class="lbl">נעצרו בסטופ</span>
+          <span class="val">${Math.round(p.s.sp*100)}%</span></div>
+        <div class="stat"><span class="lbl">תוחלת</span>
+          <span class="val" style="color:${p.s.r>=0?'var(--acc)':'var(--red)'}">
+            ${p.s.r>0?"+":""}${p.s.r.toFixed(2)}R</span></div>
+      </div></div>` : "";
+
+  if(!PICKS.length){
+    $("list").innerHTML=`<div class="block empty"><div class="big">◎</div>
+      היום אין מועמדות שעומדות בכל הקריטריונים.<br>
+      זו תוצאה תקינה — המודל מסנן ימים בלי דחיסה ברורה.</div>`;
+    return;
+  }
+
+  $("list").innerHTML=PICKS.map((s,i)=>{
+    const long=s.sd==="L", risk=Math.abs(s.e-s.st);
+    const qty=Math.max(0,Math.round(s.q*SCALE));
+    const tags=(s.tg||"").split(",").filter(Boolean);
+    return `
+    <div class="pick ${long?'long':'short'}" data-i="${i}">
+      <div class="pick-head">
+        <span class="rank">${i+1}</span>
+        <span class="tk">${s.k}</span>
+        <span class="badge ${long?'b-long':'b-short'}">${long?'לונג':'שורט'}</span>
+        <span class="spacer"></span>
+        <span class="live"><b class="px">${f2(s.px)}</b>
+          <span class="ch">ציון ${Math.round(s.sc)}</span></span>
+        <span class="chev">▾</span>
+      </div>
+
+      <div class="gauge">
+        <div class="gauge-top"><span>מרחק מהטריגר</span>
+          <b>${f2(s.e)}</b></div>
+        <div class="track"><div class="fill"></div></div>
+      </div>
+
+      <div class="quick">
+        <div class="q"><span class="lbl">טריגר</span>
+          <span class="val v-in">${f2(s.e)}</span></div>
+        <div class="q"><span class="lbl">סטופ</span>
+          <span class="val v-out">${f2(s.st)}</span></div>
+        <div class="q"><span class="lbl">כמות</span>
+          <span class="val">${qty}</span></div>
+      </div>
+
+      <div class="detail">
+        <div class="mini" id="mini${i}"></div>
+        <div class="dl"><span>יעד 1 (1R)</span><b>${f2(s.t1)}</b></div>
+        <div class="dl"><span>יעד 2 (2R)</span><b>${f2(s.t2)}</b></div>
+        <div class="dl"><span>סיכון למניה</span><b>${f2(risk)}</b></div>
+        <div class="dl"><span>סיכון כולל</span><b>$${Math.round(risk*qty)}</b></div>
+        <div class="dl"><span>שווי פוזיציה</span>
+          <b>$${Math.round(s.e*qty).toLocaleString()}</b></div>
+        <div class="dl"><span>גאפ פרה־מרקט</span><b>${pc(s.g)}</b></div>
+        <div class="dl"><span>ATR יומי</span><b>${pc(s.a)}</b></div>
+        ${tags.length?`<div class="tags">${tags.map(t=>
+          `<span class="tag">${t}</span>`).join("")}</div>`:""}
+        <div class="acts">
+          <button data-chart="${i}">גרף מלא</button>
+          <button class="btn-acc" data-copy="${i}">העתק פקודה</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+
+  document.querySelectorAll(".pick-head").forEach(h=>{
+    h.addEventListener("click",()=>{
+      const card=h.parentElement;
+      card.classList.toggle("open");
+      if(card.classList.contains("open")){
+        const i=+card.dataset.i;
+        mountMini($("mini"+i), PICKS[i].k);
+      }
+    });
+  });
+  document.querySelectorAll("[data-chart]").forEach(b=>{
+    b.addEventListener("click",e=>{
+      e.stopPropagation(); openChart(PICKS[+b.dataset.chart].k);
+    });
+  });
+  document.querySelectorAll("[data-copy]").forEach(b=>{
+    b.addEventListener("click",e=>{
+      e.stopPropagation();
+      const s=PICKS[+b.dataset.copy];
+      const qty=Math.max(0,Math.round(s.q*SCALE));
+      const txt=`${s.k} ${s.sd==="L"?"BUY":"SELL"} ${qty} @ stop ${f2(s.e)}`+
+        ` | SL ${f2(s.st)} | TP1 ${f2(s.t1)} | TP2 ${f2(s.t2)}`;
+      navigator.clipboard.writeText(txt).then(()=>toast("הפקודה הועתקה"))
+        .catch(()=>toast("ההעתקה נכשלה"));
+    });
+  });
+
+  paintLive();
+}
+
+/* ------------------ טעינה ------------------ */
+async function load(showT){
+  const c=cached(); if(c) render(c);
+  try{
+    render(await fetchList());
+    if(showT) toast("עודכן");
+  }catch(err){
+    if(err.message==="no-src") return;
+    if(c) toast("אין רשת — מוצגת הרשימה השמורה");
+    else $("list").innerHTML=`<div class="block empty"><div class="big">⚠</div>
+      לא הצלחתי למשוך את הרשימה.<br>בדוק את המקור בהגדרות.
+      <div class="note">${err.message}</div></div>`;
+  }
+  startLive();
+}
+
+function startLive(){
+  if(timer) clearInterval(timer);
+  if(!(localStorage.getItem(K_FH)||"").trim()) return;
+  fetchQuotes();
+  timer=setInterval(fetchQuotes, 60000);   // מכסת Finnhub: 60 בדקה
+}
+
+/* ------------------ הגדרות ------------------ */
+function openSettings(){
+  $("src").value=localStorage.getItem(K_SRC)||"";
+  $("fh").value=localStorage.getItem(K_FH)||"";
+  $("cap").value=localStorage.getItem(K_CAP)||"";
+  $("settings").classList.remove("hidden");
+}
+$("btnSettings").addEventListener("click",openSettings);
+$("btnClose").addEventListener("click",()=>$("settings").classList.add("hidden"));
+$("btnSave").addEventListener("click",()=>{
+  const s=$("src").value.trim();
+  if(!s){ toast("צריך מקור נתונים"); return; }
+  localStorage.setItem(K_SRC,s);
+  const f=$("fh").value.trim();
+  f?localStorage.setItem(K_FH,f):localStorage.removeItem(K_FH);
+  const c=$("cap").value.trim();
+  c?localStorage.setItem(K_CAP,c):localStorage.removeItem(K_CAP);
+  $("settings").classList.add("hidden");
+  load(true);
+});
+$("btnRefresh").addEventListener("click",()=>load(true));
+
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible") load(false);
+  else if(timer) clearInterval(timer);
+});
+
+if("serviceWorker" in navigator)
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
+
+load(false);
+</script>
+</body>
+</html>
