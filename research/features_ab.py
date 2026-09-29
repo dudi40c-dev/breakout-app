@@ -4,15 +4,18 @@ Stage 2 - Features and candidate entries for strategies A and B.
 
   A. VWAP mean reversion: 5m bar touches VWAP -k sigma band, closes back inside,
      RSI(14) on 5m oversold and turning up (short side mirrored).
+     RSI confirmation on 5m (default) or on the last closed 15m bar (--a-rsi-tf 15m).
   B. 15-minute opening range: 5m close outside the range, then a retest of the
      broken edge within N minutes, with no 5m close back inside (short mirrored).
+     Two entry variants: limit at the retest (events_B) and a stop order on
+     continuation back beyond the edge after the retest (events_B_cont).
 
 No look-ahead: 5m/15m values are used only from bar_end onward, entries are filled
 on the first 1-second bar at/after the decision time.
 Outcomes (win/loss, R) are Stage 3 - this stage only produces events + features.
 
 Input : Parquet folder from build_dataset.py (naive ET, RTH, 1-second OHLCV)
-Output: bars_5m / bars_15m / orb_daily / events_A / events_B (.parquet) in --out
+Output: bars_5m / bars_15m / orb_daily / events_A / events_B / events_B_cont (.parquet)
 
 Usage:
     python features_ab.py --data ~/nq_data/clean --out ~/nq_data/features
@@ -42,6 +45,8 @@ class Params:
     a_k: float = 2.0              # band touched: VWAP -/+ k*sigma
     a_rsi_long: float = 35.0      # 5m RSI below this (long)
     a_rsi_short: float = 65.0     # 5m RSI above this (short)
+    a_rsi_tf: str = "5m"          # "5m": 5m RSI level | "15m": last closed 15m RSI level
+    a_stop_buffer_ticks: int = 4  # stop_line = k-sigma band -/+ N ticks (break of the band)
     a_start: str = "09:45"
     a_end: str = "11:30"
     # --- B: opening range break + retest
@@ -49,6 +54,7 @@ class Params:
     b_retest_ticks: int = 4       # retest zone: within N ticks of the broken edge
     b_min_ext_ticks: int = 8      # price must first extend N ticks beyond the edge
     b_window_min: int = 30        # retest must happen within N minutes of the break
+    b_cont_ticks: int = 8         # continuation: trade N ticks beyond the edge after the retest
     b_last_break: str = "11:30"   # ignore breaks that close after this time
     or_pctl_days: int = 60        # lookback for opening-range width percentile
 
@@ -158,26 +164,31 @@ def events_a(sec: pl.DataFrame, b5: pl.DataFrame, b15: pl.DataFrame, p: Params) 
     win = (et >= _t(p.a_start)) & (et <= _t(p.a_end))
     k, tick = p.a_k, p.tick
 
+    lvl = pl.col("rsi15" if p.a_rsi_tf == "15m" else "rsi")    # oversold / overbought level
     long_ = b.filter(win & (pl.col("lo_dev_min") <= -k) & (pl.col("close_dev") > -k)
-                     & (pl.col("rsi") < p.a_rsi_long) & (pl.col("rsi") > pl.col("rsi_prev")))
+                     & (lvl < p.a_rsi_long) & (pl.col("rsi") > pl.col("rsi_prev")))
     long_ = long_.with_columns(
         side=pl.lit(1),
         stop=pl.col("low") - tick,                                        # below signal bar
         stop_band=((pl.col("vwap") - (k + 1) * pl.col("sd")) / tick).floor() * tick,
+        band_k=((pl.col("vwap") - k * pl.col("sd")) / tick).floor() * tick,
         tp_bar=pl.col("high"),                                            # signal bar high
         tp_vwap=(pl.col("vwap") / tick).floor() * tick)
 
     short = b.filter(win & (pl.col("hi_dev_max") >= k) & (pl.col("close_dev") < k)
-                     & (pl.col("rsi") > p.a_rsi_short) & (pl.col("rsi") < pl.col("rsi_prev")))
+                     & (lvl > p.a_rsi_short) & (pl.col("rsi") < pl.col("rsi_prev")))
     short = short.with_columns(
         side=pl.lit(-1),
         stop=pl.col("high") + tick,
         stop_band=((pl.col("vwap") + (k + 1) * pl.col("sd")) / tick).ceil() * tick,
+        band_k=((pl.col("vwap") + k * pl.col("sd")) / tick).ceil() * tick,
         tp_bar=pl.col("low"),
         tp_vwap=(pl.col("vwap") / tick).ceil() * tick)
 
     ev = pl.concat([long_, short]).select(
-        "day", pl.col("bar_end").alias("signal_ts"), "side", "stop", "stop_band", "tp_bar", "tp_vwap",
+        "day", pl.col("bar_end").alias("signal_ts"), "side", "stop", "stop_band", "band_k",
+        (pl.col("band_k") - pl.col("side") * p.a_stop_buffer_ticks * tick).alias("stop_line"),
+        "tp_bar", "tp_vwap",
         "close", "vwap", "sd", "close_dev", "lo_dev_min", "hi_dev_max", "rsi", "rsi_prev",
         "rsi15", "close_dev15")
     ev = fill_at_next_second(ev, sec, "signal_ts")
@@ -185,6 +196,7 @@ def events_a(sec: pl.DataFrame, b5: pl.DataFrame, b15: pl.DataFrame, p: Params) 
         risk_ticks=(pl.col("entry_px") - pl.col("stop")) * pl.col("side") / tick,
         tp_bar_ticks=(pl.col("tp_bar") - pl.col("entry_px")) * pl.col("side") / tick,
         tp_vwap_ticks=(pl.col("tp_vwap") - pl.col("entry_px")) * pl.col("side") / tick,
+        entry_to_band_ticks=(pl.col("entry_px") - pl.col("band_k")) * pl.col("side") / tick,
     ).filter(pl.col("risk_ticks") > 0).sort("entry_ts")
 
 
@@ -229,20 +241,51 @@ def _events_b_side(sec, b5, orb, p: Params, side: int) -> pl.DataFrame:
     # limit order at `zone`, filled at the limit or better if the second opened through it
     fill = pl.min_horizontal("open", "zone") if side == 1 else pl.max_horizontal("open", "zone")
     stop_far = (pl.col("or_low") - tick) if side == 1 else (pl.col("or_high") + tick)
-    return ev.select(
+    retest = ev.select(
         "day", "break_ts", pl.col("ts").alias("entry_ts"), pl.lit(side).alias("side"),
         fill.alias("entry_px"), pl.col("zone").alias("limit_px"),
         pl.col("or_mid").alias("stop"), stop_far.alias("stop_far"),
         "or_high", "or_low", "or_width_ticks", "or_width_pctl",
         ((pl.col("ts") - pl.col("break_ts")).dt.total_seconds()).alias("retest_delay_sec"))
 
+    # Continuation: after the retest, stop order N ticks beyond the edge, before a 5m
+    # close back inside and within b_window_min of the retest.
+    r = ev.select("day", "break_ts", pl.col("ts").alias("retest_ts"),
+                  pl.col(edge).alias("edge"), "or_high", "or_low", "or_mid",
+                  "or_width_ticks", "or_width_pctl",
+                  cont_end=pl.min_horizontal(
+                      pl.col("ts") + pl.duration(minutes=p.b_window_min),
+                      pl.col("fail_ts").fill_null(pl.col("ts") + pl.duration(days=1))))
+    pull = pl.col("low").cum_min() if side == 1 else pl.col("high").cum_max()
+    c = (sec.select("day", "ts", "open", "high", "low").join(r, on="day", how="inner")
+            .filter((pl.col("ts") >= pl.col("retest_ts")) & (pl.col("ts") < pl.col("cont_end")))
+            .sort("ts")
+            .with_columns(trigger=pl.col("edge") + side * p.b_cont_ticks * tick,
+                          pullback=pull.over("day")))
+    hit = (pl.col("high") >= pl.col("trigger")) if side == 1 else (pl.col("low") <= pl.col("trigger"))
+    c = (c.filter((pl.col("ts") > pl.col("retest_ts")) & hit)
+          .group_by("day").agg(pl.all().sort_by("ts").first()))
+    cfill = pl.max_horizontal("open", "trigger") if side == 1 else pl.min_horizontal("open", "trigger")
+    cont = c.select(
+        "day", "break_ts", "retest_ts", pl.col("ts").alias("entry_ts"), pl.lit(side).alias("side"),
+        cfill.alias("entry_px"), pl.col("trigger").alias("trigger_px"),
+        pl.col("or_mid").alias("stop"),
+        (pl.col("pullback") - side * tick).alias("stop_pullback"), stop_far.alias("stop_far"),
+        "or_high", "or_low", "or_width_ticks", "or_width_pctl",
+        ((pl.col("ts") - pl.col("retest_ts")).dt.total_seconds()).alias("cont_delay_sec"))
+    return retest, cont
 
-def events_b(sec, b5, orb, p: Params) -> pl.DataFrame:
-    ev = pl.concat([_events_b_side(sec, b5, orb, p, 1), _events_b_side(sec, b5, orb, p, -1)])
-    return ev.with_columns(
-        risk_ticks=(pl.col("entry_px") - pl.col("stop")) * pl.col("side") / p.tick,
-        risk_far_ticks=(pl.col("entry_px") - pl.col("stop_far")) * pl.col("side") / p.tick,
-    ).filter(pl.col("risk_ticks") > 0).sort("entry_ts")
+
+def events_b(sec, b5, orb, p: Params) -> tuple[pl.DataFrame, pl.DataFrame]:
+    (rl, cl), (rs, cs) = _events_b_side(sec, b5, orb, p, 1), _events_b_side(sec, b5, orb, p, -1)
+
+    def risk(ev: pl.DataFrame) -> pl.DataFrame:
+        return ev.with_columns(
+            risk_ticks=(pl.col("entry_px") - pl.col("stop")) * pl.col("side") / p.tick,
+            risk_far_ticks=(pl.col("entry_px") - pl.col("stop_far")) * pl.col("side") / p.tick,
+        ).filter(pl.col("risk_ticks") > 0).sort("entry_ts")
+
+    return risk(pl.concat([rl, rs])), risk(pl.concat([cl, cs]))
 
 
 # --------------------------------------------------------------------------- #
@@ -275,14 +318,16 @@ def main() -> int:
     sec = add_vwap(load(Path(a.data).expanduser()), p.tick)
     b5, b15 = resample(sec, 5, p), resample(sec, 15, p)
     orb = opening_range(sec, p)
-    ev_a, ev_b = events_a(sec, b5, b15, p), events_b(sec, b5, orb, p)
+    ev_a = events_a(sec, b5, b15, p)
+    ev_b, ev_bc = events_b(sec, b5, orb, p)
 
     for name, frame in [("bars_5m", b5), ("bars_15m", b15), ("orb_daily", orb),
-                        ("events_A", ev_a), ("events_B", ev_b)]:
+                        ("events_A", ev_a), ("events_B", ev_b), ("events_B_cont", ev_bc)]:
         frame.write_parquet(out / f"{name}.parquet")
     print(f"{sec.height:,} seconds, {sec['day'].n_unique()} days | params: {p}")
     summarize("A - VWAP mean reversion", ev_a, p)
-    summarize("B - ORB break + retest", ev_b, p)
+    summarize("B - ORB break + retest (limit at retest)", ev_b, p)
+    summarize("B - ORB break + retest + continuation (stop entry)", ev_bc, p)
     print(f"\nwritten to {out}")
     return 0
 
