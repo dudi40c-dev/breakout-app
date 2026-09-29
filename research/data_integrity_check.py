@@ -131,19 +131,22 @@ def load_normalized(path: Path) -> tuple[pl.DataFrame, dict]:
 # Checks
 # --------------------------------------------------------------------------- #
 def guess_timezone(df: pl.DataFrame) -> str:
-    """Cash open (09:30 ET) has the highest 1-minute volume of the day."""
+    """Cash open (09:30 ET) = the largest minute-over-minute volume increase of the day."""
     if "volume" not in df.columns:
         return "unknown (no volume)"
-    peak = (df.with_columns(mod=(pl.col("ts").dt.hour().cast(pl.Int32) * 60
-                                 + pl.col("ts").dt.minute().cast(pl.Int32)))
-              .group_by("mod").agg(pl.col("volume").sum())
-              .sort("volume", descending=True).row(0, named=True)["mod"])
+    vol = (df.with_columns(mod=(pl.col("ts").dt.hour().cast(pl.Int32) * 60
+                                + pl.col("ts").dt.minute().cast(pl.Int32)))
+             .group_by("mod").agg(pl.col("volume").sum()))
+    full = pl.DataFrame({"mod": pl.int_range(0, 1440, dtype=pl.Int32, eager=True)}).join(
+        vol, on="mod", how="left").fill_null(0).sort("mod")
+    jump = full["volume"] - full["volume"].shift(1, fill_value=full["volume"][-1])
+    peak = int(full["mod"][int(jump.arg_max())])
     hhmm = f"{peak // 60:02d}:{peak % 60:02d}"
     guesses = {9 * 60 + 30: "US/Eastern (ET)", 8 * 60 + 30: "US/Central (CT - exchange)",
                13 * 60 + 30: "UTC (summer)", 14 * 60 + 30: "UTC (winter) / ET+5",
                16 * 60 + 30: "Asia/Jerusalem"}
     near = [v for k, v in guesses.items() if abs(k - peak) <= 1]
-    return f"peak-volume minute {hhmm} -> {near[0] if near else 'check manually'}"
+    return f"open-jump minute {hhmm} -> {near[0] if near else 'check manually'}"
 
 
 def check_file(path: Path, tick: float, jump_ticks: int, gap_sec: int) -> tuple[dict, pl.DataFrame]:
