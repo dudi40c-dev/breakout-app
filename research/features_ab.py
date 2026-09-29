@@ -203,7 +203,7 @@ def events_a(sec: pl.DataFrame, b5: pl.DataFrame, b15: pl.DataFrame, p: Params) 
 # --------------------------------------------------------------------------- #
 # Strategy B - opening range break + retest
 # --------------------------------------------------------------------------- #
-def _events_b_side(sec, b5, orb, p: Params, side: int) -> pl.DataFrame:
+def _events_b_side(sec, b5, orb, p: Params, side: int) -> tuple[pl.DataFrame, pl.DataFrame]:
     tick = p.tick
     edge = "or_high" if side == 1 else "or_low"
     b = b5.join(orb.filter("or_complete"), on="day", how="inner").filter(
