@@ -52,6 +52,7 @@ class Params:
     # --- B: opening range break + retest
     or_minutes: int = 15
     b_retest_ticks: int = 4       # retest zone: within N ticks of the broken edge
+    b_entry_through: int = 1      # limit entry filled only if price trades N ticks THROUGH it
     b_min_ext_ticks: int = 8      # price must first extend N ticks beyond the edge
     b_window_min: int = 30        # retest must happen within N minutes of the break
     b_cont_ticks: int = 8         # continuation: trade N ticks beyond the edge after the retest
@@ -234,7 +235,8 @@ def _events_b_side(sec, b5, orb, p: Params, side: int) -> tuple[pl.DataFrame, pl
                   else pl.min_horizontal("ext_so_far", "break_ext"))
     zone = pl.col(edge) + side * p.b_retest_ticks * tick           # limit price
     extended = (ext_so_far - pl.col(edge)) * side >= p.b_min_ext_ticks * tick
-    touched = (pl.col("low") <= zone) if side == 1 else (pl.col("high") >= zone)
+    thru = p.b_entry_through * tick                                  # touch alone is not a fill
+    touched = (pl.col("low") <= zone - thru) if side == 1 else (pl.col("high") >= zone + thru)
 
     ev = (s.with_columns(zone=zone).filter(extended & touched)
             .group_by("day").agg(pl.all().sort_by("ts").first()))
