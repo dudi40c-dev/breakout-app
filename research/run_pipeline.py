@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 One command: Stage 0 (integrity) -> 1 (clean dataset) -> 2 (features/events) -> 3 (evaluation)
-for strategy A (VWAP mean reversion) and optionally B.
+for strategy A (VWAP mean reversion), R (VWAP rejection) and optionally B (ORB).
 
 Writes <out>/summary_for_claude.txt - a short text file to paste back into the chat.
 
@@ -10,6 +10,7 @@ Usage (Windows / macOS / Linux):
     python run_pipeline.py                                  # ~/Downloads, timezone auto-detected
     python run_pipeline.py --src "D:/data/nq" --tz-in UTC   # explicit folder / timezone
     python run_pipeline.py --with-b                         # also evaluate ORB (B) variants
+    python run_pipeline.py --only R                         # only strategy R variants
 """
 from __future__ import annotations
 
@@ -30,11 +31,15 @@ from data_integrity_check import FILE_PATTERNS, check_file  # noqa: E402
 TZ_MAP = {"US/Eastern": "America/New_York", "US/Central": "America/Chicago",
           "UTC": "UTC", "Asia/Jerusalem": "Asia/Jerusalem"}
 
-# Strategy A variants from the source rules (see features_ab.py for parameters)
-A_VARIANTS = {
-    "A_k2_rsi5m": [],
-    "A_k2_rsi15m": ["--a-rsi-tf", "15m"],
-    "A_k3_rsi15m": ["--a-k", "3", "--a-rsi-tf", "15m"],
+# name: (stage 2 script, extra args, summary prefix, event files)
+VARIANTS = {
+    "A_k2_rsi5m": ("features_ab.py", [], "A -", ["events_A"]),
+    "A_k2_rsi15m": ("features_ab.py", ["--a-rsi-tf", "15m"], "A -", ["events_A"]),
+    "A_k3_rsi15m": ("features_ab.py", ["--a-k", "3", "--a-rsi-tf", "15m"], "A -", ["events_A"]),
+    "R_all": ("features_vr.py", [], "R -", ["events_R"]),
+    "R_daily_ctx": ("features_vr.py", ["--r-daily-ctx", "1"], "R -", ["events_R"]),
+    "R_short_ctx": ("features_vr.py", ["--r-daily-ctx", "1", "--r-sides", "short"], "R -", ["events_R"]),
+    "B": ("features_ab.py", [], "B -", ["events_B", "events_B_cont"]),
 }
 
 
@@ -93,6 +98,7 @@ def main() -> int:
     ap.add_argument("--out", default=str(Path.home() / "nq_research"))
     ap.add_argument("--tz-in", default="auto", help="auto | America/New_York | UTC | Asia/Jerusalem ...")
     ap.add_argument("--with-b", action="store_true", help="also evaluate ORB variants")
+    ap.add_argument("--only", choices=["A", "R", "B"], default=None, help="run one strategy family only")
     ap.add_argument("--min-trades", type=int, default=50)
     ap.add_argument("--comm-micro", default="1.0", help="$ round turn MNQ (verify with TPT)")
     ap.add_argument("--comm-full", default="4.0", help="$ round turn NQ (verify with TPT)")
@@ -114,19 +120,16 @@ def main() -> int:
     s1 = run("build_dataset.py", "--src", str(src), "--out", str(clean), "--tz-in", tz)
     summary += ["\n[STAGE 1]", s1.strip().splitlines()[-1]]
 
-    variants = dict(A_VARIANTS)
-    if a.with_b:
-        variants["B"] = []
-    for name, extra in variants.items():
+    variants = {k: v for k, v in VARIANTS.items()
+                if (a.only and k.startswith(a.only)) or (not a.only and (k != "B" or a.with_b))}
+    for name, (script, extra, prefix, files) in variants.items():
         print(f"Stage 2+3: {name} ...")
         feat = out / f"features_{name}"
-        s2 = run("features_ab.py", "--data", str(clean), "--out", str(feat), *extra)
-        prefix = "A -" if name.startswith("A") else "B -"
+        s2 = run(script, "--data", str(clean), "--out", str(feat), *extra)
         lines = s2.splitlines()
         ev_lines = [ln for i, ln in enumerate(lines)
                     if ln.startswith(prefix) or (i and lines[i - 1].startswith(prefix) and "risk ticks" in ln)]
         summary += [f"\n[{name}] stage 2 args: {' '.join(extra) or '(defaults)'}", *("  " + ln for ln in ev_lines)]
-        files = ["events_A"] if name.startswith("A") else ["events_B", "events_B_cont"]
         for ev in files:
             ev_path = feat / f"{ev}.parquet"
             if pl.read_parquet(ev_path).is_empty():

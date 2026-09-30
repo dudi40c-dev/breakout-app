@@ -4,7 +4,8 @@ Stage 3 - Evaluate Stage 2 entry events on 1-second data (edge detection).
 
 For every event and every combination of
     stop column  (any "stop*" column in the events file)
-    target       (any "tp_*" column + fixed R multiples)
+    target       (any "tp_*" column, fixed R multiples, scale-out "S1>2": half at 1R,
+                  rest with stop at breakeven to 2R)
     max hold     (minutes, then exit at market)
 the trade is walked second by second from the entry second:
   * stop hit when low <= stop (long) / high >= stop (short); gap-through fills at the open
@@ -48,12 +49,34 @@ def walk(px, i0: int, i1: int, side: int, stop: float, tgt: float, through: floa
     return s, t
 
 
+def leg(px, i0: int, i1: int, side: int, stop: float, tgt: float, through: float, slip: float):
+    """Exit of one position leg walked over [i0, i1): (index, exit price, how)."""
+    s, t = walk(px, i0, i1, side, stop, tgt, through)
+    if s >= 0 and (t < 0 or s <= t):                  # stop first / same second -> stop
+        k = i0 + s
+        o = px["open"][k]
+        gap = min(stop, o) if side == 1 else max(stop, o)
+        return k, gap - side * slip, "stop"
+    if t >= 0:
+        return i0 + t, tgt, "target"
+    k = i1 - 1
+    return k, px["close"][k] - side * slip, "time"
+
+
+def r_price(entry: float, side: int, mult: float, risk: float, tick: float) -> float:
+    raw = entry + side * mult * risk
+    return float((np.ceil(raw / tick) if side == 1 else np.floor(raw / tick)) * tick)
+
+
 def simulate(px, ev: pl.DataFrame, a) -> pl.DataFrame:
-    tick, slip = a.tick, a.slip * a.tick
+    """Targets: tp_* columns, "R<x>" (full exit at x R) and "S<a>><b>" (scale-out:
+    half at a R, stop of the rest moved to breakeven, rest at b R)."""
+    tick, slip, thru = a.tick, a.slip * a.tick, a.limit_through * a.tick
     entry_slip = 0.0 if "limit_px" in ev.columns else slip
     stop_cols = [c for c in ev.columns if c.startswith("stop")]
     tp_cols = [c for c in ev.columns if c.startswith("tp_") and not c.endswith("_ticks")]
-    targets = tp_cols + [f"R{r:g}" for r in a.r_targets]
+    scale = [f"S{x}>{y}" for x, y in (so.split(":") for so in getattr(a, "scale_outs", []))]
+    targets = tp_cols + [f"R{r:g}" for r in a.r_targets] + scale
     holds = sorted(a.holds)
     ts = px["ts"]
 
@@ -75,32 +98,29 @@ def simulate(px, ev: pl.DataFrame, a) -> pl.DataFrame:
             if risk < tick:
                 continue
             for tg in targets:
-                if tg.startswith("R"):
-                    raw = entry + side * float(tg[1:]) * risk
-                    tgt = (np.ceil(raw / tick) if side == 1 else np.floor(raw / tick)) * tick
+                if tg.startswith("S"):
+                    m1, m2 = (float(x) for x in tg[1:].split(">"))
+                    tgt, tgt2 = r_price(entry, side, m1, risk, tick), r_price(entry, side, m2, risk, tick)
+                elif tg.startswith("R"):
+                    tgt, tgt2 = r_price(entry, side, float(tg[1:]), risk, tick), None
                 else:
-                    tgt = e[tg]
+                    tgt, tgt2 = e[tg], None
                 if tgt is None or (tgt - entry) * side < tick:
                     continue
-                i_max = min(i_day, int(np.searchsorted(ts, t0 + holds[-1] * 60)))
-                if i_max <= i0:
-                    continue
-                s, t = walk(px, i0, i_max, side, stop, tgt, a.limit_through * tick)
                 for h in holds:
-                    i_h = min(i_day, int(np.searchsorted(ts, t0 + h * 60))) - i0
-                    s_h = s if 0 <= s < i_h else -1
-                    t_h = t if 0 <= t < i_h else -1
-                    if s_h >= 0 and (t_h < 0 or s_h <= t_h):          # stop first / same second
-                        k = i0 + s_h
-                        o = px["open"][k]
-                        gap = min(stop, o) if side == 1 else max(stop, o)
-                        exit_px, how = gap - side * slip, "stop"
-                    elif t_h >= 0:
-                        k, exit_px, how = i0 + t_h, tgt, "target"
-                    else:
-                        k = i0 + i_h - 1
-                        exit_px, how = px["close"][k] - side * slip, "time"
-                    pnl = (exit_px - entry) * side / tick
+                    i_end = min(i_day, int(np.searchsorted(ts, t0 + h * 60)))
+                    if i_end <= i0:
+                        continue
+                    k, x1, how = leg(px, i0, i_end, side, stop, tgt, thru, slip)
+                    pnl = (x1 - entry) * side / tick
+                    if tgt2 is not None and how == "target":
+                        # runner: stop at breakeven (entry fill), from the next second
+                        if k + 1 < i_end:
+                            k, x2, how2 = leg(px, k + 1, i_end, side, entry, tgt2, thru, slip)
+                        else:
+                            x2, how2 = px["close"][k] - side * slip, "time"
+                        pnl = 0.5 * pnl + 0.5 * (x2 - entry) * side / tick
+                        how = f"partial+{how2}"
                     rows.append((sc, tg, h, e["day"], t0, int(ts[k]) + 1, side,
                                  pnl, pnl / (risk / tick), risk / tick, how))
     return pl.DataFrame(rows, orient="row", schema=[
@@ -191,6 +211,8 @@ def main() -> int:
     ap.add_argument("--comm-full", type=float, default=4.0, help="$ round turn, NQ/ES (ASSUMPTION - verify)")
     ap.add_argument("--comm-micro", type=float, default=1.0, help="$ round turn, MNQ/MES (ASSUMPTION - verify)")
     ap.add_argument("--r-targets", type=float, nargs="+", default=[1.0, 1.5, 2.0])
+    ap.add_argument("--scale-outs", nargs="*", default=["1:2"],
+                    help='scale-out plans "a:b" = half at aR, stop to breakeven, rest at bR')
     ap.add_argument("--holds", type=int, nargs="+", default=[10, 20, 30, 60], help="max hold, minutes")
     ap.add_argument("--max-trades-day", type=int, default=3)
     ap.add_argument("--max-daily-loss-r", type=float, default=2.0)
